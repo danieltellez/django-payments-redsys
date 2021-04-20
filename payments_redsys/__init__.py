@@ -41,6 +41,7 @@ from django import forms
 import logging
 logger = logging.getLogger('payments_redsys')
 
+
 def compute_signature(salt, payload, key):
     '''
     For Redsys:
@@ -55,22 +56,26 @@ def compute_signature(salt, payload, key):
     payload_hash = hmac.new(pepper, payload, hashlib.sha256).digest()
     return base64.b64encode(payload_hash)
 
+
 def compare_signatures(sig1, sig2):
     alphanumeric_characters = re.compile('[^a-zA-Z0-9]')
     sig1safe = re.sub(alphanumeric_characters, '', sig1)
     sig2safe = re.sub(alphanumeric_characters, '', sig2)
     return sig1safe == sig2safe
 
+
 class RedsysResponseForm(forms.Form):
     Ds_SignatureVersion = forms.CharField(max_length=256)
     Ds_Signature = forms.CharField(max_length=256)
     Ds_MerchantParameters = forms.CharField(max_length=2048)
+
 
 # TODO: Will be great to reach the endpoint just using "real" or "pruebas", but will be a major update
 REDSYS_ENVIRONMENTS = {
     "real": "https://sis.redsys.es",
     "pruebas": "https://sis-t.redsys.es:25443",
 }
+
 
 class RedsysProvider(BasicProvider):
     def __init__(self, *args, **kwargs):
@@ -87,9 +92,9 @@ class RedsysProvider(BasicProvider):
         assert self.endpoint in REDSYS_ENVIRONMENTS.values(), \
             "Provided Redsys endpoint '{}' is not valid".format(self.endpoint)
 
-        self.order_number_prefix = kwargs.pop('order_number_prefix','0000')
-        self.signature_version = kwargs.pop('signature_version','HMAC_SHA256_V1')
-        #TODO self.button_image = '/static/images/payment_button.jpg'
+        self.order_number_prefix = kwargs.pop('order_number_prefix', '0000')
+        self.signature_version = kwargs.pop('signature_version', 'HMAC_SHA256_V1')
+
         super(RedsysProvider, self).__init__(*args, **kwargs)
 
     @property
@@ -104,10 +109,15 @@ class RedsysProvider(BasicProvider):
         client = zeep.Client(*args) 
         return client.service.trataPeticion(kwargs.get('data', {}))
 
+    def get_order_number(self, payment):
+        if hasattr(payment, 'get_order_number'):
+            return payment.get_order_number()
+        else:
+            return '%s%d' % (self.order_number_prefix, payment.pk)
+
     def get_hidden_fields(self, payment):
-        #site = Site.objects.get_current()
-        order_number = '%s%d' % (self.order_number_prefix,payment.pk)
-        amount = str(int(payment.total * 100)) # price is in cents
+        order_number = self.get_order_number(payment)
+        amount = str(int(payment.total * 100))  # price is in cents
         # switch to payment.get_total_price() at some point
         # returns a TaxedMoney from 'prices'
         # need the gross element of TaxedMoney
