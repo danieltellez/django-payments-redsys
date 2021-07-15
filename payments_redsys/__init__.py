@@ -109,6 +109,12 @@ class RedsysProvider(BasicProvider):
         client = zeep.Client(*args) 
         return client.service.trataPeticion(kwargs.get('data', {}))
 
+    def generate_order_number(self, payment):
+        if hasattr(payment, 'generate_order_number'):
+            return payment.generate_order_number()
+        else:
+            return '%s%d' % (self.order_number_prefix, payment.pk)
+
     def get_order_number(self, payment):
         if hasattr(payment, 'get_order_number'):
             return payment.get_order_number()
@@ -116,7 +122,7 @@ class RedsysProvider(BasicProvider):
             return '%s%d' % (self.order_number_prefix, payment.pk)
 
     def get_hidden_fields(self, payment):
-        order_number = self.get_order_number(payment)
+        order_number = self.generate_order_number(payment)
         amount = str(int(payment.total * 100))  # price is in cents
         # switch to payment.get_total_price() at some point
         # returns a TaxedMoney from 'prices'
