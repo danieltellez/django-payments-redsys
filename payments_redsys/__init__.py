@@ -218,7 +218,7 @@ class RedsysProvider(BasicProvider):
         form = RedsysResponseForm(request.POST)
         if form.is_valid():
             logger.debug('processing payment gateway response for payment %d' % payment.pk)
-            order_number = '%s%d' % (self.order_number_prefix, payment.pk)
+            order_number = self.get_order_number(payment)
             signature = compute_signature(order_number,
                                           form.cleaned_data['Ds_MerchantParameters'].encode(),
                                           self.shared_secret)
