@@ -18,7 +18,6 @@
 from __future__ import unicode_literals
 import zeep
 import hashlib
-import datetime
 import json
 import re
 import xmltodict
@@ -27,19 +26,33 @@ import base64
 import hmac
 import pyDes
 
-from codecs import encode
-
 from django.http import HttpResponse
-from django.shortcuts import redirect
 
 from payments.forms import PaymentForm
 from payments.core import BasicProvider, get_base_url, urljoin
 from payments import PaymentError
 
 from django import forms
+# from django.utils.translation import ugettext as _
 
 import logging
 logger = logging.getLogger('payments_redsys')
+
+TRANSACTION_TYPE_STANDARD = 0
+TRANSACTION_TYPE_AUTHENTICATION = 7
+TRANSACTION_TYPE_AUTHORIZATION = 8
+TRANSACTION_TYPES = (
+    (TRANSACTION_TYPE_STANDARD, 'Standard'),
+    (TRANSACTION_TYPE_AUTHENTICATION, 'Authentication'),
+    (TRANSACTION_TYPE_AUTHORIZATION, 'Authorization'),
+)
+
+PAYMENT_METHOD_STANDARD = None
+PAYMENT_METHOD_BIZUM = 'z'
+PAYMENT_METHODS = (
+    (PAYMENT_METHOD_STANDARD, 'Standard'),
+    (PAYMENT_METHOD_BIZUM, 'Bizum')
+)
 
 
 def compute_signature(salt, payload, key):
@@ -138,8 +151,20 @@ class RedsysProvider(BasicProvider):
             "DS_MERCHANT_MERCHANTURL": self.get_return_url(payment),
             "DS_MERCHANT_URLOK": urljoin(get_base_url(), payment.get_success_url()),
             "DS_MERCHANT_URLKO": urljoin(get_base_url(), payment.get_failure_url()),
+            'DS_'
             "Ds_Merchant_ConsumerLanguage": '002',
         }
+
+        if hasattr(payment, 'transaction_type') and payment.transaction_type is not None:
+            merchant_data.update({
+                'DS_MERCHANT_TRANSACTIONTYPE': payment.transaction_type
+            })
+
+        if hasattr(payment, 'payment_method') and payment.payment_method is not None:
+            merchant_data.update({
+                'DS_MERCHANT_PAYMETHODS': payment.payment_method
+            })
+
         json_data = json.dumps(merchant_data)
         b64_params = base64.b64encode(json_data.encode())
         signature = compute_signature(str(order_number), b64_params, self.shared_secret)
