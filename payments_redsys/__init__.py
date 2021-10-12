@@ -164,6 +164,16 @@ class RedsysProvider(BasicProvider):
                 'DS_MERCHANT_PAYMETHODS': payment.payment_method
             })
 
+        if hasattr(payment, 'get_product_description'):
+            merchant_data.update({
+                'DS_MERCHANT_PRODUCT_DESCRIPTION': payment.get_product_description()
+            })
+
+        if hasattr(payment, 'get_merchant_data'):
+            merchant_data.update({
+                'DS_MERCHANT_MERCHANTDATA': payment.get_merchant_data()
+            })
+
         json_data = json.dumps(merchant_data)
         b64_params = base64.b64encode(json_data.encode())
         signature = compute_signature(str(order_number), b64_params, self.shared_secret)
