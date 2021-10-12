@@ -151,7 +151,6 @@ class RedsysProvider(BasicProvider):
             "DS_MERCHANT_MERCHANTURL": self.get_return_url(payment),
             "DS_MERCHANT_URLOK": urljoin(get_base_url(), payment.get_success_url()),
             "DS_MERCHANT_URLKO": urljoin(get_base_url(), payment.get_failure_url()),
-            'DS_'
             "Ds_Merchant_ConsumerLanguage": '002',
         }
 
