@@ -154,6 +154,11 @@ class RedsysProvider(BasicProvider):
             "Ds_Merchant_ConsumerLanguage": '002',
         }
 
+        if hasattr(payment, 'get_language') and payment.transaction_type is not None:
+            merchant_data.update({
+                'Ds_Merchant_ConsumerLanguage': payment.get_language()
+            })
+
         if hasattr(payment, 'transaction_type') and payment.transaction_type is not None:
             merchant_data.update({
                 'DS_MERCHANT_TRANSACTIONTYPE': payment.transaction_type
