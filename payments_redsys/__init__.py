@@ -26,6 +26,9 @@ import base64
 import hmac
 import pyDes
 
+from requests import request
+
+from django.conf import settings
 from django.http import HttpResponse
 
 from payments.forms import PaymentForm
@@ -96,6 +99,7 @@ class RedsysProvider(BasicProvider):
         self.terminal = kwargs.pop('terminal')
         self.shared_secret = kwargs.pop('shared_secret')
         self.currency = kwargs.pop('currency', '978')
+        self.transaction_type = kwargs.pop('transaction_type', '0')
 
         # Get provided endpoint base domain or REDSYS.pruebas env
         self.endpoint = urljoin(
@@ -119,7 +123,7 @@ class RedsysProvider(BasicProvider):
         return "{}/sis/services/SerClsWSEntrada/wsdl/SerClsWSEntrada.wsdl".format(self.endpoint)
 
     def post(self, *args, **kwargs):
-        client = zeep.Client(*args) 
+        client = zeep.Client(*args)
         return client.service.trataPeticion(kwargs.get('data', {}))
 
     def generate_order_number(self, payment):
@@ -146,7 +150,7 @@ class RedsysProvider(BasicProvider):
             "DS_MERCHANT_ORDER": order_number,
             "DS_MERCHANT_MERCHANTCODE": self.merchant_code,
             "DS_MERCHANT_CURRENCY": self.currency,
-            "DS_MERCHANT_TRANSACTIONTYPE": '0',
+            "DS_MERCHANT_TRANSACTIONTYPE": self.transaction_type or payment.transaction_type,
             "DS_MERCHANT_TERMINAL": self.terminal,
             "DS_MERCHANT_MERCHANTURL": self.get_return_url(payment),
             "DS_MERCHANT_URLOK": urljoin(get_base_url(), payment.get_success_url()),
@@ -220,7 +224,7 @@ class RedsysProvider(BasicProvider):
         b64_params = base64.b64encode(signature_data.encode())
         signature = compute_signature(
             str(order_number),
-            signature_data.encode(), 
+            signature_data.encode(),
             self.shared_secret
         )
 
@@ -246,8 +250,8 @@ class RedsysProvider(BasicProvider):
 
             parsed_code = int(response_code)
             if 0 <= parsed_code < 100 \
-                or parsed_code == 400 \
-                or parsed_code == 900:
+                    or parsed_code == 400 \
+                    or parsed_code == 900:
                 return refund_amount
         except:
             # Wait to raise 
@@ -257,7 +261,46 @@ class RedsysProvider(BasicProvider):
 
     def get_form(self, payment, data=None):
         return PaymentForm(self.get_hidden_fields(payment),
-                           self.endpoint_form, self._method)
+                           self.endpoint_form,
+                           self._method)
+
+    def generate_paygold(self, payment):
+        order_number = self.generate_order_number(payment)
+        merchant_data = {
+            "DS_MERCHANT_AMOUNT": str(int(payment.total * 100)),
+            "DS_MERCHANT_CURRENCY": self.currency,
+            # "DS_MERCHANT_CUSTOMER_MAIL": payment.user.email,
+            # "DS_MERCHANT_CUSTOMER_MOBILE": "666555444",
+            "DS_MERCHANT_MERCHANTCODE": self.merchant_code,
+            "DS_MERCHANT_MERCHANTURL": self.get_return_url(payment),
+            "DS_MERCHANT_ORDER": order_number,
+            # "DS_MERCHANT_P2F_XMLDATA": {
+            #     "<nombreComprador>NOMBRE DEL COMPRADOR</nombreComprador>"
+            #     "<direccionComprador>DIRECCION DEL COMPRADOR</direccionComprador>"
+            #     "<textoLibre1>TEXTO LIBRE</textoLibre1>"
+            #     "<subjectMailCliente>ASUNTO EMAIL</subjectMailCliente>"},
+            "DS_MERCHANT_TERMINAL": self.terminal,
+            "DS_MERCHANT_TRANSACTIONTYPE": "F"
+        }
+
+        json_data = json.dumps(merchant_data)
+        b64_params = base64.b64encode(json_data.encode())
+        signature = compute_signature(str(order_number), b64_params, self.shared_secret)
+        data = {
+            'Ds_SignatureVersion': self.signature_version,
+            'Ds_MerchantParameters': b64_params.decode(),
+            'Ds_Signature': signature.decode(),
+        }
+        params = {
+            'method': 'POST',
+            'url': 'https://sis-t.redsys.es:25443/sis/rest/trataPeticionREST',
+            'timeout': 65
+        }
+
+        params.update({'json': data})
+
+        response = request(**params)
+        return response
 
     def process_data(self, payment, request):
         form = RedsysResponseForm(request.POST)
@@ -285,7 +328,8 @@ class RedsysProvider(BasicProvider):
                     payment.extra_data = merchant_parameters
                     payment.change_status('confirmed')
                     logger.debug('payment %d confirmed' % payment.pk)
-                elif transaction_type == '1':
+                elif transaction_type in ['1', '7', ]:
+                    payment.transaction_id = merchant_parameters['Ds_AuthorisationCode']
                     payment.extra_data = merchant_parameters
                     payment.change_status('preauth')
                     logger.debug('payment %d preauthorised' % payment.pk)
@@ -307,5 +351,8 @@ class RedsysProvider(BasicProvider):
                 payment.change_status('rejected', message='Ds_Response was %d' % response_code)
                 # perhaps import and raise PaymentError from django-payments
                 logger.debug('rejected: %s' % binary_merchant_parameters.decode())
+
+        else:
+            logger.info(f"form invalid: {request.POST}")
 
         return HttpResponse()
